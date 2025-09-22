@@ -1,5 +1,3 @@
-export interface IRateLimitStrategies<T extends object = any> {
+export interface IRateLimitStrategies {
   name: string;
-
-  opts?: T;
 }

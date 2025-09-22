@@ -16,7 +16,12 @@ type IdentityData = {
 };
 
 export class TokenBucketStrategy implements IRateLimitStrategies {
-  constructor({ capacity, refillRate }: TokenBucketOpts) {
+  constructor(
+    { capacity, refillRate }: TokenBucketOpts = {
+      capacity: 10,
+      refillRate: 1,
+    },
+  ) {
     this.capacity = capacity; // max number of tokens
     this.refillRate = refillRate; // tokens added per second
   }
@@ -30,6 +35,8 @@ export class TokenBucketStrategy implements IRateLimitStrategies {
 export class TokenBucketStrategyHandler
   implements IRateLimitStrategyHandler<TokenBucketStrategy>
 {
+  private readonly algorithm = TokenBucketStrategy.name;
+
   constructor(
     private readonly strategyHandlerStorage: RateLimitStrategyHandlerStorage,
     private readonly redisService: RedisService,
@@ -45,7 +52,7 @@ export class TokenBucketStrategyHandler
     const { capacity = 10, refillRate = 1 } = strategy;
     const identityData = await this.getIdentityData(identityKey, capacity);
 
-    this.refill(refillRate, capacity, identityData);
+    this.refill(identityData, { refillRate, capacity });
 
     let allowed = false;
     let retryAfter = 0;
@@ -59,38 +66,43 @@ export class TokenBucketStrategyHandler
       retryAfter = missing / refillRate;
     }
 
-    const remainingTokens = Math.floor(identityData.tokens);
-
-    await this.redisService.set(identityKey, identityData);
+    await this.redisService.set(this.getKey(identityKey), identityData);
 
     return {
       allowed,
-      remaining: remainingTokens,
+      remaining: Math.floor(identityData.tokens),
       limit: capacity,
       retryAfter, // seconds until next allowed
+      algorithm: 'TokenBucket',
     };
+  }
+
+  private getKey(identityKey: string) {
+    return `RT:${this.algorithm}:${identityKey}`;
   }
 
   private async getIdentityData(
     identityKey: string,
     capacity: number,
   ): Promise<IdentityData> {
-    const identityData = await this.redisService.get<IdentityData>(identityKey);
+    const identityData = await this.redisService.get<IdentityData>(
+      this.getKey(identityKey),
+    );
 
     return identityData
       ? identityData
-      : {
-          tokens: capacity,
-          lastRefill: Date.now(),
-        };
+      : { tokens: capacity, lastRefill: Date.now() };
   }
 
   // refill tokens based on elapsed time
   private refill(
-    refillRate: number,
-    capacity: number,
     identityData: IdentityData,
+    config: {
+      refillRate: number;
+      capacity: number;
+    },
   ) {
+    const { capacity, refillRate } = config;
     const now = Date.now();
     const elapsedSeconds = (now - identityData.lastRefill) / 1000;
     const tokensToAdd = elapsedSeconds * refillRate;

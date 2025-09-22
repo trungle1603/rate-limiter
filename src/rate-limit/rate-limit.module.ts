@@ -5,6 +5,7 @@ import { ApiKeyExtractor } from './extractors/api-key.extractor';
 import { IpExtractor } from './extractors/ip.extractor';
 import { RateLimitExtractorHandlerStorage } from './extractors/rate-limit-extractor-handler.storage';
 import { RateLimitGuard } from './rate-limit.guard';
+import { FixedWindowCounterStrategyHandler } from './strategies/fixed-window-counter.strategy';
 import { RateLimitStrategyHandlerStorage } from './strategies/rate-limit-strategy-handler.storage';
 import { TokenBucketStrategyHandler } from './strategies/token-bucket.strategy';
 
@@ -24,6 +25,7 @@ import { TokenBucketStrategyHandler } from './strategies/token-bucket.strategy';
 
     // Strategies
     RateLimitStrategyHandlerStorage,
+    FixedWindowCounterStrategyHandler,
     TokenBucketStrategyHandler,
   ],
 })

@@ -14,8 +14,8 @@ import {
   RATE_LIMIT_EXTRACTOR_KEY,
   RATE_LIMIT_STRATEGY_KEY,
 } from './rate-limit.decorator';
+import { FixedWindowCounterStrategy } from './strategies/fixed-window-counter.strategy';
 import { RateLimitStrategyHandlerStorage } from './strategies/rate-limit-strategy-handler.storage';
-import { TokenBucketStrategy } from './strategies/token-bucket.strategy';
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
@@ -43,7 +43,7 @@ export class RateLimitGuard implements CanActivate {
           description: JSON.stringify({
             'X-RateLimit-Remaining': remaining,
             'X-RateLimit-Limit': limit,
-            'X-RateLimit-Retry-After': retryAfter,
+            'X-RateLimit-Reset': retryAfter.toFixed(2),
           }),
         },
       );
@@ -68,7 +68,7 @@ export class RateLimitGuard implements CanActivate {
       this.reflector.getAllAndOverride<IRateLimitStrategies>(
         RATE_LIMIT_STRATEGY_KEY,
         [context.getHandler(), context.getClass()],
-      ) ?? new TokenBucketStrategy({ capacity: 10, refillRate: 1 });
+      ) ?? new FixedWindowCounterStrategy();
 
     const handler = this.strategyHandlerStorage.get(
       strategy.constructor as Type,
