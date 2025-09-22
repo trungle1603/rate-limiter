@@ -1,58 +1,93 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
+  Type,
 } from '@nestjs/common';
-import { ModuleRef, Reflector } from '@nestjs/core';
-import { Request, Response } from 'express';
-import { IpExtractor } from './extractors/ip.extractor';
-import { IdentityExtractor } from './interface';
-import { RATE_LIMIT_OPTIONS, RateLimitOptions } from './rate-limit.decorator';
-import { RateLimitService } from './rate-limit.service';
+import { Reflector } from '@nestjs/core';
+import { ERateLimitExtractor } from './enums/rate-limit-extractor.enum';
+import { RateLimitExtractorHandlerStorage } from './extractors/rate-limit-extractor-handler.storage';
+import { IRateLimitStrategies } from './interfaces/rate-limit-strategies.interface';
+import {
+  RATE_LIMIT_EXTRACTOR_KEY,
+  RATE_LIMIT_STRATEGY_KEY,
+} from './rate-limit.decorator';
+import { RateLimitStrategyHandlerStorage } from './strategies/rate-limit-strategy-handler.storage';
+import { TokenBucketStrategy } from './strategies/token-bucket.strategy';
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   constructor(
-    private rateLimitService: RateLimitService,
-    private reflector: Reflector,
-    private moduleRef: ModuleRef,
+    private readonly reflector: Reflector,
+    private readonly extractorHandlerStorage: RateLimitExtractorHandlerStorage,
+    private readonly strategyHandlerStorage: RateLimitStrategyHandlerStorage,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const response = context.switchToHttp().getResponse<Response>();
+    const extractorHandler = this.getExtractorHandler(context);
+    const { strategy, handler: strategyHandler } =
+      this.getStrategyHandler(context);
 
-    const extractor = this.getExtractor(context);
-    const clientKey = await extractor.extract(request);
-    const result = await this.rateLimitService.checkLimit(clientKey);
+    const identityKey = await extractorHandler.getIdentityKey(context);
 
-    console.log(result);
+    const { allowed, limit, remaining, retryAfter } =
+      await strategyHandler.consume(strategy, identityKey);
 
-    // Attach standard headers
-    response.setHeader('X-RateLimit-Remaining', result.remaining);
-    response.setHeader('X-RateLimit-Limit', result.limit);
-    response.setHeader('X-RateLimit-Retry-After', result.retryAfter);
-
-    if (!result.allowed) {
-      throw new ForbiddenException('Rate limit exceeded');
+    if (!allowed) {
+      throw new HttpException(
+        'Rate limit exceeded',
+        HttpStatus.TOO_MANY_REQUESTS,
+        {
+          description: JSON.stringify({
+            'X-RateLimit-Remaining': remaining,
+            'X-RateLimit-Limit': limit,
+            'X-RateLimit-Retry-After': retryAfter,
+          }),
+        },
+      );
     }
 
     return true;
   }
 
-  private getExtractor(context: ExecutionContext) {
-    const options =
-      this.reflector.get<RateLimitOptions>(
-        RATE_LIMIT_OPTIONS,
-        context.getHandler(),
-      ) ?? {};
+  private getExtractorHandler(context: ExecutionContext) {
+    const extractor =
+      this.reflector.getAllAndOverride<ERateLimitExtractor>(
+        RATE_LIMIT_EXTRACTOR_KEY,
+        [context.getHandler(), context.getClass()],
+      ) ?? ERateLimitExtractor.IP_ADDRESS;
 
-    const ExtractorClass = options.identityExtractor ?? IpExtractor;
-
-    const extractor: IdentityExtractor = this.moduleRef.get(ExtractorClass, {
-      strict: false,
-    });
-    return extractor;
+    const handler = this.extractorHandlerStorage.get(extractor);
+    return handler;
   }
+
+  private getStrategyHandler(context: ExecutionContext) {
+    const strategy =
+      this.reflector.getAllAndOverride<IRateLimitStrategies>(
+        RATE_LIMIT_STRATEGY_KEY,
+        [context.getHandler(), context.getClass()],
+      ) ?? new TokenBucketStrategy({ capacity: 10, refillRate: 1 });
+
+    const handler = this.strategyHandlerStorage.get(
+      strategy.constructor as Type,
+    );
+    return { handler, strategy };
+  }
+
+  // private getExtractor(context: ExecutionContext) {
+  //   const options =
+  //     this.reflector.get<RateLimitOptions>(
+  //       RATE_LIMIT_OPTIONS,
+  //       context.getHandler(),
+  //     ) ?? {};
+
+  //   const ExtractorClass = options.identityExtractor ?? IpExtractor;
+
+  //   const extractor: IdentityExtractor = this.moduleRef.get(ExtractorClass, {
+  //     strict: false,
+  //   });
+  //   return extractor;
+  // }
 }

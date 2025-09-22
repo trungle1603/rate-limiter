@@ -7,7 +7,6 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { IpExtractor } from '../rate-limit/extractors/ip.extractor';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { CoffeesService } from './coffees.service';
 import { CreateCoffeeDto } from './dto/create-coffee.dto';
@@ -23,7 +22,7 @@ export class CoffeesController {
   }
 
   @Get()
-  @RateLimit({ identityExtractor: IpExtractor })
+  @RateLimit()
   findAll() {
     return this.coffeesService.findAll();
   }

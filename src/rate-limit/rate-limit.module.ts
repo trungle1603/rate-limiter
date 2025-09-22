@@ -1,26 +1,30 @@
-import { Global, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { RedisModule } from '../redis/redis.module';
 import { ApiKeyExtractor } from './extractors/api-key.extractor';
 import { IpExtractor } from './extractors/ip.extractor';
+import { RateLimitExtractorHandlerStorage } from './extractors/rate-limit-extractor-handler.storage';
 import { RateLimitGuard } from './rate-limit.guard';
-import { RateLimitService } from './rate-limit.service';
-import { TokenBucketStrategy } from './strategies/token-bucket.strategy';
+import { RateLimitStrategyHandlerStorage } from './strategies/rate-limit-strategy-handler.storage';
+import { TokenBucketStrategyHandler } from './strategies/token-bucket.strategy';
 
-@Global()
 @Module({
   imports: [RedisModule],
 
   providers: [
-    RateLimitService,
     {
-      provide: 'RateLimitStrategy',
-      useClass: TokenBucketStrategy,
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
     },
-    TokenBucketStrategy,
+
+    // Extractor
+    RateLimitExtractorHandlerStorage,
     IpExtractor,
     ApiKeyExtractor,
-    RateLimitGuard,
+
+    // Strategies
+    RateLimitStrategyHandlerStorage,
+    TokenBucketStrategyHandler,
   ],
-  exports: [RateLimitService],
 })
 export class RateLimitModule {}
